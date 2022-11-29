@@ -1,0 +1,88 @@
+[[package]]
+name = "asn1tools"
+version = "0.164.0"
+description = "ASN.1 parsing, encoding and decoding."
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+bitstruct = "*"
+diskcache = "*"
+prompt_toolkit = "*"
+pyparsing = ">=3.0.6"
+
+[[package]]
+name = "bitstruct"
+version = "8.15.1"
+description = "This module performs conversions between Python values and C bit field structs represented as Python byte strings."
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
+name = "diskcache"
+version = "5.4.0"
+description = "Disk Cache -- Disk and file backed persistent cache."
+category = "main"
+optional = false
+python-versions = ">=3"
+
+[[package]]
+name = "ecpy"
+version = "1.2.5"
+description = "Pure Python Elliptic Curve Library"
+category = "main"
+optional = false
+python-versions = ">= 2.7"
+develop = false
+
+[package.source]
+type = "git"
+url = "https://github.com/cslashm/ECPy.git"
+reference = "master"
+resolved_reference = "8143d9ac017de0cb7f980bedaf56cefe6b4d9180"
+
+[[package]]
+name = "prompt-toolkit"
+version = "3.0.3"
+description = "Library for building powerful interactive command lines in Python"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+wcwidth = "*"
+
+[[package]]
+name = "pyparsing"
+version = "3.0.7"
+description = "Python parsing module"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.extras]
+diagrams = ["jinja2", "railroad-diagrams"]
+
+[[package]]
+name = "wcwidth"
+version = "0.2.5"
+description = "Measures the displayed width of unicode strings in a terminal"
+category = "main"
+optional = false
+python-versions = "*"
+
+[metadata]
+lock-version = "1.1"
+python-versions = "^3.6"
+content-hash = "132617648c6e2eb3b1394ad7f42106e1884bd4da90dd8b025cd58437208cead6"
+
+[metadata.files]
+asn1tools = []
+bitstruct = []
+diskcache = []
+ecpy = []
+prompt-toolkit = []
+pyparsing = []
+wcwidth = []

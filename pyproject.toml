@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "var-ue"
+version = "0.1.0"
+description = "Verificador de Assinaturas de Resultados das Urnas Eletrônicas"
+authors = ["Paulo Matias <matias@ufscar.br>"]
+license = "ISC"
+
+[tool.poetry.dependencies]
+python = "^3.6"
+asn1tools = "^0.164.0"
+ecpy = {git = "https://github.com/cslashm/ECPy.git"}
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
