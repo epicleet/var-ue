@@ -2,7 +2,7 @@
 
 Este script verifica as assinaturas geradas pelo Módulo de Segurança Embarcado (MSE) da urna eletrônica brasileira (modelos UE2009 a UE2020).
 
-Além disso, o script realiza uma tarefa considerada *impossível* por alguns (mas, na prática, bastante trivial): recupera o Código Identificador da UE a partir do campo Common Name do certificado digital, relacionando-o assim de forma unívoca aos logs gerados por aquela urna, assim como aos demais produtos públicos da eleição (BU e RDV).
+Além disso, o script realiza uma tarefa considerada *impossível* por alguns (mas, na prática, bastante trivial): recupera o Código Identificador da UE a partir do campo Common Name do certificado digital, relacionando-o assim de forma unívoca aos logs gerados por aquela urna, bem como aos demais produtos públicos da eleição (BU e RDV).
 
 
 ## Instalação
