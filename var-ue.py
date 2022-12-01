@@ -59,31 +59,23 @@ def verify_file(vscmr_filename):
         # PEM to DER
         cert_data = b64decode(b''.join(cert_data.splitlines()[1:-1]))
     cert = x509_conv.decode('Certificate', cert_data)
-    cert = cert['tbsCertificate']
+    tbscert = cert['tbsCertificate']
 
-    cn = next(
-            item['value'] for item in cert['subject'][1][0]
-            if item['type'] == '2.5.4.3')
-    assert cn[0] in {0x13, 0xc}, 'CN deveria ser PrintableString ou OCTET STRING'
-    cn = cn[2:2+cn[1]].decode('utf-8')
-
+    cn = get_cn(tbscert['subject'])
     logging.info(f'{vscmr_filename} - Identificação da urna: {cn}')
 
-    pubkey_algo = cert['subjectPublicKeyInfo']['algorithm']['algorithm']
-    pubkey, _ = cert['subjectPublicKeyInfo']['subjectPublicKey']
+    pubkey, signer = get_pubkey_and_signer(tbscert)
+    logging.debug(f'{vscmr_filename} - Chave pública com curva {pubkey.curve.name}')
 
-    if pubkey_algo == '1.2.840.10045.2.1':
-        logging.debug(f'{vscmr_filename} - Chave pública do tipo P-521')
-        signer = ECDSA()
-        curve = Curve.get_curve('secp521r1')
-    elif pubkey_algo == '1.3.6.1.4.1.44588.2.1':
-        logging.debug(f'{vscmr_filename} - Chave pública do tipo Ed521')
-        signer = EDDSA(hashlib.shake_256, hash_len=132)
-        curve = Curve.get_curve('Ed521')
-    else:
-        log_and_raise(f'{vscmr_filename} - Este utilitário não suporta chave pública do tipo {pubkey_algo}')
-
-    pubkey = ECPublicKey(curve.decode_point(pubkey))
+    issuer_cn = get_cn(tbscert['issuer'])
+    logging.debug(f'{vscmr_filename} - Certificado emitido por {issuer_cn}')
+    issuer_pubkey = trusted_issuers[get_cn(tbscert['issuer'])]
+    msg = x509_conv.encode('TBSCertificate', tbscert)
+    if isinstance(signer, ECDSA):
+        msg = hashlib.sha512(msg).digest()
+    if not signer.verify(msg, cert['signature'][0], issuer_pubkey):
+        log_and_raise(f'{vscmr_filename} - assinatura do certificado inválida')
+    # TODO: receber data das eleições como argumento e verificar a validade do certificado
 
     conteudo = vscmr_conv.decode('Assinatura', vscmr['assinaturaHW']['conteudoAutoAssinado'])
     assinaturas = conteudo['arquivosAssinados']
@@ -111,6 +103,42 @@ def verify_file(vscmr_filename):
             log_and_raise(f'{arquivo} - assinatura inválida')
 
         logging.info(f'{arquivo} - OK')
+
+
+def decode_issuers(issuers):
+    res = {}
+    for encoded_cert in issuers:
+        cert = x509_conv.decode('Certificate', b64decode(encoded_cert)) 
+        pubkey, _ = get_pubkey_and_signer(cert['tbsCertificate'])
+        res[get_cn(cert['tbsCertificate']['subject'])] = pubkey
+    return res
+
+
+def get_cn(name):
+    cn = next(
+            item['value'] for item in name[1][0]
+            if item['type'] == '2.5.4.3')
+    assert cn[0] in {0x13, 0xc}, 'CN deveria ser PrintableString ou OCTET STRING'
+    cn = cn[2:2+cn[1]].decode('utf-8')
+    return cn
+
+
+def get_pubkey_and_signer(tbscert):
+    pubkey_algo = tbscert['subjectPublicKeyInfo']['algorithm']['algorithm']
+    encoded_pubkey, _ = tbscert['subjectPublicKeyInfo']['subjectPublicKey']
+
+    if pubkey_algo == '1.2.840.10045.2.1':
+        signer = ECDSA()
+        curve = Curve.get_curve('secp521r1')
+    elif pubkey_algo == '1.3.6.1.4.1.44588.2.1':
+        signer = EDDSA(hashlib.shake_256, hash_len=132)
+        curve = Curve.get_curve('Ed521')
+    else:
+        raise ValueError(f'Este utilitário não suporta chave pública do tipo {pubkey_algo}')
+
+    pubkey = ECPublicKey(curve.decode_point(encoded_pubkey))
+
+    return pubkey, signer
 
 
 def log_and_raise(msg):
@@ -1225,6 +1253,54 @@ END
 
 vscmr_conv = asn1tools.compile_string(vscmr_spec, codec="ber", numeric_enums=True)
 x509_conv = asn1tools.compile_string(x509_spec, codec="der")
+
+# Valide os certificados (verifique até a raiz, etc.) antes de adicionar nesta lista
+trusted_issuers = decode_issuers([
+'''
+MIID+jCCA1ygAwIBAgIBAzAKBggqhkjOPQQDBDCBgjELMAkGA1UEBhMCQlIxDDAK
+BgNVBAoTA1RTRTEMMAoGA1UECxMDU1RJMRMwEQYDVQQDEwpBQyBSQUlaIFVFMQsw
+CQYDVQQIEwJERjERMA8GA1UEBxMIQnJhc2lsaWExIjAgBgkqhkiG9w0BCQEWE2Fj
+cmFpenVlQHRzZS5qdXMuYnIwHhcNMTEwNzIyMjE1OTU3WhcNMjYwNzE4MjE1OTU3
+WjB9MRAwDgYDVQQDEwdBQyBVUk5BMQswCQYDVQQIEwJERjELMAkGA1UEBhMCQlIx
+IDAeBgkqhkiG9w0BCQEWEWFjdXJuYUB0c2UuanVzLmJyMQwwCgYDVQQKEwNUU0Ux
+DDAKBgNVBAsTA1NUSTERMA8GA1UEBxMIQnJhc2lsaWEwgZswEAYHKoZIzj0CAQYF
+K4EEACMDgYYABACBR0E65ux46ll8Z41Fi0QJf+LWQqUZDI2wIvB4+F9vHqrw0/tb
+6pasdXwwxxdRia5oI21UrKsN2f0VxCtWGPAzzwHPPXSY4w9bSIg/evLDXFZ9QNKK
+EWt83xzz1U6nsd2H+XI2sNSOWQS485ZYQ7nnThRgPhRsYsbCKb6Gmt7JTNudkqOC
+AYIwggF+MAwGA1UdEwQFMAMBAf8wga8GA1UdIwSBpzCBpIAUhmiDe7vjSM0ZthAw
+pInV395nQsChgYikgYUwgYIxCzAJBgNVBAYTAkJSMQwwCgYDVQQKEwNUU0UxDDAK
+BgNVBAsTA1NUSTETMBEGA1UEAxMKQUMgUkFJWiBVRTELMAkGA1UECBMCREYxETAP
+BgNVBAcTCEJyYXNpbGlhMSIwIAYJKoZIhvcNAQkBFhNhY3JhaXp1ZUB0c2UuanVz
+LmJyggEBMB0GA1UdDgQWBBTNqvSylwGz8N6ytUJYWUptNK2kijALBgNVHQ8EBAMC
+AYYwPAYDVR0fBDUwMzAxoC+gLYYraHR0cDovL2xjci5hY3JhaXp1ZS50c2UuanVz
+LmJyL2FjcmFpenVlLmNybDBSBgNVHSAESzBJMEcGAwAAADBAMD4GCCsGAQUFBwIB
+FjJodHRwOi8vZHBjLmFjcmFpenVlLnRzZS5qdXMuYnIvRFBDLVBDLUFDUkFJWlVF
+LnBkZjAKBggqhkjOPQQDBAOBiwAwgYcCQS2Qnvfn3wF8Ft96nAjZH5tp/0VKwp0j
+iJYy1+7Bx5PB94lW6D7Hqvfe6XClC9faSrNTQL1XFdZg2yw/hMROUb2uAkIBe8l4
+fiGIaXNVTLstkxNGYoXCjJvGtBc1zeFBRXKA3S95lskEMn8QJ06vYRK6PiUu5foM
+yaLcujRjcz9Mb7zpTfo=
+''',
+'''
+MIIDITCCAoegAwIBAgIBBTAMBgorBgEEAYLcLAIBMIGCMRMwEQYDVQQDDApBQyBV
+Uk5BIHYyMQswCQYDVQQIDAJERjELMAkGA1UEBhMCQlIxIjAgBgkqhkiG9w0BCQEW
+E2FjdXJuYXYyQHRzZS5qdXMuYnIxDDAKBgNVBAoMA1RTRTEMMAoGA1UECwwDU1RJ
+MREwDwYDVQQHDAhCcmFzaWxpYTAeFw0yMTA3MDUyMTMxNTZaFw0zNzA3MDEyMTMx
+NTZaMIGBMRIwEAYDVQQDDAlBQyBVRTIwMjAxCzAJBgNVBAgMAkRGMQswCQYDVQQG
+EwJCUjEiMCAGCSqGSIb3DQEJARYTYWN1ZTIwMjBAdHNlLmp1cy5icjEMMAoGA1UE
+CgwDVFNFMQwwCgYDVQQLDANTVEkxETAPBgNVBAcMCEJyYXNpbGlhMFMwDAYKKwYB
+BAGC3CwCAQNDAF09dk0RI6kU77+TiS2ztj0vPF03oPFKLTbUSQXMdCi5dDVRcd94
+wqBk5jCzCLBhpH+wvVVxX8W2lBm/yS7VcK65AaOB8DCB7TAMBgNVHRMEBTADAQH/
+MAsGA1UdDwQEAwIBBjAdBgNVHQ4EFgQUvLNUXe7qQy4egy6BKDy4rpSOQAswHwYD
+VR0jBBgwFoAU0CVmxJEDSzqTE7MHSSHsqbUA4h8wPAYDVR0fBDUwMzAxoC+gLYYr
+aHR0cDovL2xjci5hY3VybmF2Mi50c2UuanVzLmJyL2FjdXJuYXYyLmNybDBSBgNV
+HSAESzBJMEcGAwAAADBAMD4GCCsGAQUFBwIBFjJodHRwOi8vZHBjLmFjdXJuYXYy
+LnRzZS5qdXMuYnIvRFBDLVBDLUFDVVJOQVYyLlBERjAMBgorBgEEAYLcLAIBA4GF
+ADuPH84sRDCnd7vmSDb3ae7qtPoUCcPbeOJb3zFtArAUm6ki7bV0Fa0jUri4LtEm
+XYgrhOETAvqaRBlBk2vRH409gRbpHpMf9cvzgoMGAp+ShXHwlZ4m6XJuFXi77hMc
+qGvoUFpGzp0yXzbP1uK1QMvfyVakWpczXQnvS3zay18ik9NFAA==
+'''
+])
+
 
 if __name__ == '__main__':
     main()
