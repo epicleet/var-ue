@@ -41,7 +41,8 @@ def main():
     if args.parallel:
         from multiprocessing import Pool
         p = Pool()
-        p.map(verify_file, vscmr_files) 
+        for _ in p.imap_unordered(verify_file, vscmr_files):
+            pass
     else:
         for vscmr_filename in vscmr_files:
             verify_file(vscmr_filename)
