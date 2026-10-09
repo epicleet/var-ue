@@ -53,7 +53,10 @@ def verify_file(vscmr_filename):
 
     with open(vscmr_filename, 'rb') as f:
         vscmr_encoded = f.read()
-    vscmr = vscmr_conv.decode('EntidadeAssinaturaResultado', vscmr_encoded)
+    try:
+        vscmr = vscmr_conv.decode('EntidadeAssinaturaResultado', vscmr_encoded)
+    except asn1tools.DecodeError:
+        vscmr = vscmr_conv.decode('EntidadeAssinaturaResultadoLegado', vscmr_encoded)
 
     cert_data = vscmr['assinaturaHW']['certificadoDigital']
     if cert_data.startswith(b'-----'):
@@ -70,7 +73,9 @@ def verify_file(vscmr_filename):
 
     issuer_cn = get_cn(tbscert['issuer'])
     logging.debug(f'{vscmr_filename} - Certificado emitido por {issuer_cn}')
-    issuer_pubkey = trusted_issuers[get_cn(tbscert['issuer'])]
+    if issuer_cn not in trusted_issuers:
+        log_and_raise(f'{vscmr_filename} - emissor do certificado desconhecido: {issuer_cn}')
+    issuer_pubkey = trusted_issuers[issuer_cn]
     msg = x509_conv.encode('TBSCertificate', tbscert)
     if isinstance(signer, ECDSA):
         msg = hashlib.sha512(msg).digest()
@@ -157,11 +162,12 @@ EXPORTS ALL;
 DataHoraJE ::= GeneralString(SIZE(15))  -- Data e hora utilizada pela Justiça Eleitoral no formato YYYYMMDDThhmmss.
 
 -- ENUMS
---Tipos de algoritmos de assinatura (cepesc é o algoritmo padrão (ainda não há previsão de uso dos demais)).
+--Tipos de algoritmos de assinatura.
 AlgoritmoAssinatura ::= ENUMERATED {
     rsa(1),
     ecdsa(2),
-    cepesc(3)
+    cepesc(3),
+    eddsa(4)    -- Inferido dos dados de 2026 (UE2020/UE2022, chave Ed521).
 }
 
 -- Tipos de algoritmos de hash (Todos os algoritmos devem ser suportados, mas sha512 é o padrão).
@@ -179,7 +185,8 @@ ModeloUrna ::= ENUMERATED {
     ue2011(11), -- Urna modelo 2011.
     ue2013(13), -- Urna modelo 2013.
     ue2015(15), -- Urna modelo 2015.
-    ue2020(20)  -- Urna modelo 2020.
+    ue2020(20), -- Urna modelo 2020.
+    ue2022(22)  -- Urna modelo 2022.
 }
 
 -- ENVELOPE
@@ -189,17 +196,39 @@ EntidadeAssinatura ::= SEQUENCE {
     versao                  INTEGER (2..99999999),              -- Versao do protocolo (Alterações devem gerar novo valor. Nas eleições de 2012 foi utilizado o enumerado de valor 1, a partir de 2014 utilizar o valor 2).
     autoAssinado            AutoAssinaturaDigital,              -- Informações da auto assinatura digital.
     conteudoAutoAssinado    OCTET STRING,                       -- Conteúdo da assinatura do próprio arquivo.
-    certificadoDigital      OCTET STRING OPTIONAL,              -- Certificado digital da urna eletrônica.
-    conjuntoChave           GeneralString(SIZE(1..15)) OPTIONAL -- Identificador do conjunto de chaves usado para assinar o pacote.
+    conjuntoChave           [0] GeneralString(SIZE(1..15)) OPTIONAL, -- Identificador do conjunto de chaves usado para assinar o pacote.
+    certificadoDigital      [1] OCTET STRING OPTIONAL                -- Certificado digital da urna eletrônica.
 }
 
 -- Entidade responsável por gerar o arquivo de assinatura de todos os arquivos de resultados da urna.
 -- Podendo ter dois tipos de assinatura (Hardware (HW) e Software (SW)).
 -- Esses arquivos são informados na Mídia de Resultado quando a urna eletrônica é encerrada.
+-- Formato inferido dos arquivos .vsc de 2026 (antes, modeloUrna era o primeiro campo).
 EntidadeAssinaturaResultado ::= SEQUENCE {
-    modeloUrna      ModeloUrna,         -- Modelo da urna eletrônica.
     assinaturaSW    EntidadeAssinatura, -- Assinatura realizada via software (normalmente CEPESC).
-    assinaturaHW    EntidadeAssinatura  -- Assinatura realizada via hardware de segurança da urna eletrônica.
+    assinaturaHW    EntidadeAssinatura, -- Assinatura realizada via hardware de segurança da urna eletrônica.
+    infoUrna        InfoUrna
+}
+
+InfoUrna ::= SEQUENCE {
+    modeloUrna      ModeloUrna,         -- Modelo da urna eletrônica.
+    algoritmoHW     AlgoritmoAssinatura -- Coincide com assinaturaHW.autoAssinado.algoritmoAssinatura nos dados observados.
+}
+
+-- Formato utilizado até 2022 (.vscmr/.vscsa).
+EntidadeAssinaturaLegado ::= SEQUENCE {
+    dataHoraCriacao         DataHoraJE,
+    versao                  INTEGER (2..99999999),
+    autoAssinado            AutoAssinaturaDigital,
+    conteudoAutoAssinado    OCTET STRING,
+    certificadoDigital      OCTET STRING OPTIONAL,
+    conjuntoChave           GeneralString(SIZE(1..15)) OPTIONAL
+}
+
+EntidadeAssinaturaResultadoLegado ::= SEQUENCE {
+    modeloUrna      ModeloUrna,
+    assinaturaSW    EntidadeAssinaturaLegado,
+    assinaturaHW    EntidadeAssinaturaLegado
 }
 
 -- Demais SEQUENCES
@@ -1299,6 +1328,27 @@ LnRzZS5qdXMuYnIvRFBDLVBDLUFDVVJOQVYyLlBERjAMBgorBgEEAYLcLAIBA4GF
 ADuPH84sRDCnd7vmSDb3ae7qtPoUCcPbeOJb3zFtArAUm6ki7bV0Fa0jUri4LtEm
 XYgrhOETAvqaRBlBk2vRH409gRbpHpMf9cvzgoMGAp+ShXHwlZ4m6XJuFXi77hMc
 qGvoUFpGzp0yXzbP1uK1QMvfyVakWpczXQnvS3zay18ik9NFAA==
+''',
+# AC UE2022: obtido de github.com/doccaz/urnas-br (docv2/python/lib/mr_util.py) e
+# validado até a AC RAIZ UE v2 (assinado por AC URNA v2, que é assinada pela raiz)
+'''
+MIIDITCCAoegAwIBAgIBCDAMBgorBgEEAYLcLAIBMIGCMRMwEQYDVQQDDApBQyBV
+Uk5BIHYyMQswCQYDVQQIDAJERjELMAkGA1UEBhMCQlIxIjAgBgkqhkiG9w0BCQEW
+E2FjdXJuYXYyQHRzZS5qdXMuYnIxDDAKBgNVBAoMA1RTRTEMMAoGA1UECwwDU1RJ
+MREwDwYDVQQHDAhCcmFzaWxpYTAeFw0yMzAyMjgxMzQ2NDlaFw0zOTAyMjQxMzQ2
+NDlaMIGBMRIwEAYDVQQDDAlBQyBVRTIwMjIxCzAJBgNVBAgMAkRGMQswCQYDVQQG
+EwJCUjEiMCAGCSqGSIb3DQEJARYTYWN1ZTIwMjJAdHNlLmp1cy5icjEMMAoGA1UE
+CgwDVFNFMQwwCgYDVQQLDANTVEkxETAPBgNVBAcMCEJyYXNpbGlhMFMwDAYKKwYB
+BAGC3CwCAQNDADcTiMAO2BJpyn3QVzU5bKqWqCBe/X4uls8WVXtSR15k6Sietkdo
+S87iRk2Im3FVzsivJPK+TSGho6sVgFzfVdTsAKOB8DCB7TAMBgNVHRMEBTADAQH/
+MAsGA1UdDwQEAwIBBjAdBgNVHQ4EFgQUu3xRfylKW5b5v2qWTE8lWnVfaYowHwYD
+VR0jBBgwFoAU0CVmxJEDSzqTE7MHSSHsqbUA4h8wPAYDVR0fBDUwMzAxoC+gLYYr
+aHR0cDovL2xjci5hY3VybmF2Mi50c2UuanVzLmJyL2FjdXJuYXYyLmNybDBSBgNV
+HSAESzBJMEcGAwAAADBAMD4GCCsGAQUFBwIBFjJodHRwOi8vZHBjLmFjdXJuYXYy
+LnRzZS5qdXMuYnIvRFBDLVBDLUFDVVJOQVYyLlBERjAMBgorBgEEAYLcLAIBA4GF
+AChtHrhxscJ/SiePj3cCI/aPt5uJxC43PR6FjNENukBYxwkkWvFRbPblU/2muJZM
+82ezEJtfcQ+3hWHoIZXKnkdTASSo0OX4TwykkFSb3/jX+D65ePsKUPGmYyWzt05A
++appfWxFCmWlib09waOnIQ6NmmrNPW8GGgaCiU54Xc3mElhTAA==
 '''
 ])
 

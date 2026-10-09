@@ -1,8 +1,15 @@
 # VAR UE - Verificador de Assinaturas de Resultados das Urnas Eletrônicas
 
-Este script verifica as assinaturas geradas pelo Módulo de Segurança Embarcado (MSE) da urna eletrônica brasileira (modelos UE2009 a UE2020).
+Este script verifica as assinaturas geradas pelo Módulo de Segurança Embarcado (MSE) da urna eletrônica brasileira (modelos UE2009 a UE2022).
 
 Além disso, o script realiza uma tarefa considerada *impossível* por alguns (mas, na prática, bastante trivial): recupera o Código Identificador da UE a partir do campo Common Name do certificado digital, relacionando-o assim de forma unívoca aos logs gerados por aquela urna, bem como aos demais produtos públicos da eleição (BU e RDV).
+
+
+## Eleições suportadas
+
+São suportados tanto os arquivos `.vscmr`/`.vscsa` de 2022 quanto os arquivos `-vota.vsc` publicados a partir das eleições de 2026. A versão original, compatível apenas com 2022, está na tag `eleicoes-2022`.
+
+O certificado da autoridade `AC UE2022` (emissora dos certificados das urnas modelo UE2022) foi obtido de [doccaz/urnas-br](https://github.com/doccaz/urnas-br/blob/main/docv2/python/lib/mr_util.py) e validado até a `AC RAIZ UE v2`: ele é assinado pela `AC URNA v2`, que por sua vez é assinada pela raiz.
 
 
 ## Instalação
